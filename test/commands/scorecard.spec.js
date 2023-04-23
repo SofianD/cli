@@ -1,83 +1,94 @@
 // Import Node.js Dependencies
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 
 // Import Third-party Dependencies
 import tap from "tap";
 import esmock from "esmock";
 import { API_URL } from "@nodesecure/ossf-scorecard-sdk";
 import { Ok } from "@openally/result";
+import { MockAgent, setGlobalDispatcher } from "undici";
+import cliRunner from "../../../cliRunner/dist/buildCliRunnerClass.js";
 
 // Import Internal Dependencies
-import { runProcess } from "../helpers/cliCommandRunner.js";
-import { arrayFromAsync, getExpectedScorecardLines } from "../helpers/utils.js";
+import { getExpectedScorecardLines } from "../helpers/utils.js";
+import * as scorecard from "../../src/commands/scorecard.js";
 
 // CONSTANTS
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const kProcessDir = path.join(__dirname, "..", "process");
-const kProcessPath = path.join(kProcessDir, "scorecard.js");
+const MockCli = new cliRunner.MockCliBuilder(fileURLToPath(import.meta.url));
+
+function scenario() {
+  const { baseUrl, intercept, response } = undiciMockAgentOptions;
+  const mockAgent = new MockAgent();
+  const pool = mockAgent.get(baseUrl);
+
+  mockAgent.disableNetConnect();
+  pool.intercept(intercept).reply(response.status, () => response.body);
+  setGlobalDispatcher(mockAgent);
+
+  scorecard.main(packageName).then(() => process.exit(0));
+}
 
 tap.test("scorecard should display fastify scorecard", async(tape) => {
-  const packageName = "fastify/fastify";
-  const mockBody = {
-    date: "2222-12-31",
-    repo: {
-      name: `github.com/${packageName}`
+  MockCli.mark("KEKW");
+
+  const packageName = "fastify/fastifyyyyyy";
+  const undiciMockAgentOptions = {
+    baseUrl: API_URL,
+    intercept: {
+      path: `/projects/github.com/${packageName}`,
+      method: "GET"
     },
-    score: 5.2,
-    checks: [
-      {
-        name: "Maintained",
-        score: -1,
-        reason: "Package is maintained"
-      }
-    ]
-  };
-  const scorecardCliOptions = {
-    path: kProcessPath,
-    args: [packageName],
-    undiciMockAgentOptions: {
-      baseUrl: API_URL,
-      intercept: {
-        path: `/projects/github.com/${packageName}`,
-        method: "GET"
-      },
-      response: {
-        body: mockBody,
-        status: 200
+    response: {
+      status: 200,
+      body: {
+        date: "2222-12-31",
+        repo: {
+          name: `github.com/${packageName}`
+        },
+        score: 5.2,
+        checks: [
+          {
+            name: "Maintained",
+            score: -1,
+            reason: "Package is maintained"
+          }
+        ]
       }
     }
   };
 
-  const givenLines = await arrayFromAsync(runProcess(scorecardCliOptions));
-  const expectedLines = getExpectedScorecardLines(packageName, mockBody);
+  const expectedLines = getExpectedScorecardLines(packageName, undiciMockAgentOptions.response.body);
+  const givenLines = await MockCli.run({
+    fn: scenario,
+    constants: ["mockBody", "packageName", "undiciMockAgentOptions"]
+  });
 
   tape.same(givenLines, expectedLines, `lines should be ${expectedLines}`);
   tape.end();
 });
 
 tap.test("should not display scorecard for unknown repository", async(tape) => {
+  MockCli.mark("KEKWAIT");
   const packageName = "unkown/repository";
-  const scorecardCliOptions = {
-    path: kProcessPath,
-    args: [packageName],
-    undiciMockAgentOptions: {
-      baseUrl: API_URL,
-      intercept: {
-        path: `/projects/github.com/${packageName}`,
-        method: "GET"
-      },
-      response: {
-        body: {},
-        status: 500
-      }
+  const undiciMockAgentOptions = {
+    baseUrl: API_URL,
+    intercept: {
+      path: `/projects/github.com/${packageName}`,
+      method: "GET"
+    },
+    response: {
+      body: {},
+      status: 500
     }
   };
 
   const expectedLines = [
     `${packageName} is not part of the OSSF Scorecard BigQuery public dataset.`
   ];
-  const givenLines = await arrayFromAsync(runProcess(scorecardCliOptions));
+  const givenLines = await MockCli.run({
+    fn: scenario,
+    constants: ["mockBody", "packageName", "undiciMockAgentOptions"]
+  });
 
   tape.same(givenLines, expectedLines, `lines should be ${expectedLines}`);
   tape.end();

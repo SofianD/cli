@@ -3,22 +3,29 @@ dotenv.config();
 
 // Import Node.js Dependencies
 import { fileURLToPath } from "node:url";
-import path from "node:path";
+import { join } from "node:path";
 
 // Import Third-party Dependencies
 import tap from "tap";
 import stripAnsi from "strip-ansi";
 import * as i18n from "@nodesecure/i18n";
+import cliRunner from "../../../cliRunner/dist/buildCliRunnerClass.js";
 
 // Import Internal Dependencies
-import { runProcess } from "../helpers/cliCommandRunner.js";
+import * as summary from "../../src/commands/summary.js";
 
 // CONSTANTS
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const kProcessDir = path.join(__dirname, "..", "process");
-const kProcessPath = path.join(kProcessDir, "summary.js");
+const MockCli = new cliRunner.MockCliBuilder(fileURLToPath(import.meta.url));
 
 tap.test("summary should execute summary command on fixtures 'result-test1.json'", async(tape) => {
+  MockCli.mark("1");
+
+  const givenLines = await MockCli.run({
+    fn: function main() {
+      summary.main(join("test", "fixtures", "result-test1.json"));
+    }
+  });
+
   await i18n.setLocalLang("english");
   const lines = [
     /Global Stats: express.*$/,
@@ -36,12 +43,7 @@ tap.test("summary should execute summary command on fixtures 'result-test1.json'
   ];
   tape.plan(lines.length * 2);
 
-  const processOptions = {
-    path: kProcessPath,
-    cwd: path.join(__dirname, "..", "fixtures")
-  };
-
-  for await (const line of runProcess(processOptions)) {
+  for (const line of givenLines) {
     const regexp = lines.shift();
     tape.ok(regexp, "we are expecting this line");
     tape.ok(regexp.test(stripAnsi(line)), `line (${line}) matches ${regexp}`);
